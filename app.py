@@ -2,8 +2,10 @@ from flask import Flask, jsonify, request
 import requests
 import json
 from datetime import datetime
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 
 def save_chat(user_message, bot_reply):

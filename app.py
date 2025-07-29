@@ -1,17 +1,21 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, session
 import requests
 import json
 from datetime import datetime
 from flask_cors import CORS
+from threading import Thread
 
 app = Flask(__name__)
 CORS(app)
+conversation_history = []
 
 
 def save_chat(user_message, bot_reply):
-    chats = {"user": user_message, "bot": bot_reply,"timestamp":datetime.now().isoformat()}
-    with open("chat_history.json", "a") as f:
-        f.write(json.dumps(chats) + '\n')
+    def _save():
+       chats = {"user": user_message, "bot": bot_reply,"timestamp":datetime.now().isoformat()}
+       with open("chat_history.json", "a") as f:
+           f.write(json.dumps(chats) + '\n')
+    Thread(target=_save).start()
 
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -25,25 +29,25 @@ def home():
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
+        session = requests.Session()
         data = request.get_json()
         if not data or 'text' not in data:
             return jsonify({"error" : "Missing 'text' in request"}),400
         text = data.get('text')
-        reply = requests.post(
+        conversation_history.append({"role" : "user","content":text})
+        reply = session.post(
             OLLAMA_URL,
             json={
                 "model": "llama3.1",
-                "messages": [{
-                    "role": "user",
-                    "content": text,
-                }],
+                "messages": conversation_history,
                 "stream": False
             },
-            timeout=30
+            timeout=60
         )
         reply.raise_for_status()
         bot_reply = reply.json()["message"]["content"]
         save_chat(text, bot_reply)
+        conversation_history.append({"role" :"assistant","content":bot_reply})
         return jsonify({"reply": bot_reply})
     except requests.exceptions.RequestException as e :
         return jsonify({"error" :f"Ollama connection failed :{str(e)}"}),502

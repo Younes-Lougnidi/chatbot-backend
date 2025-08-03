@@ -40,12 +40,17 @@ def chat():
             json={
                 "model": "llama3.1",
                 "messages": conversation_history,
-                "stream": False
+                "stream": True
             },
+            stream = True,
             timeout=60
         )
+        bot_reply = ""
         reply.raise_for_status()
-        bot_reply = reply.json()["message"]["content"]
+        for line in reply.iter_lines():
+            if line:
+                chunk = json.loads(line.decode('utf-8'))
+                bot_reply += chunk.get("message",{}).get("content","")
         save_chat(text, bot_reply)
         conversation_history.append({"role" :"assistant","content":bot_reply})
         return jsonify({"reply": bot_reply})
@@ -74,4 +79,5 @@ def clear_history():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+   app.run(host="0.0.0.0", port=5000, debug=True)
+

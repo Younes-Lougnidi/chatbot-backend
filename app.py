@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, session
+from flask import Flask, jsonify, request, Response
 import requests
 import json
 from datetime import datetime
@@ -12,9 +12,10 @@ conversation_history = []
 
 def save_chat(user_message, bot_reply):
     def _save():
-       chats = {"user": user_message, "bot": bot_reply,"timestamp":datetime.now().isoformat()}
-       with open("chat_history.json", "a") as f:
-           f.write(json.dumps(chats) + '\n')
+        chats = {"user": user_message, "bot": bot_reply, "timestamp": datetime.now().isoformat()}
+        with open("chat_history.json", "a") as f:
+            f.write(json.dumps(chats) + '\n')
+
     Thread(target=_save).start()
 
 
@@ -32,32 +33,37 @@ def chat():
         session = requests.Session()
         data = request.get_json()
         if not data or 'text' not in data:
-            return jsonify({"error" : "Missing 'text' in request"}),400
+            return jsonify({"error": "Missing 'text' in request"}), 400
         text = data.get('text')
-        conversation_history.append({"role" : "user","content":text})
-        reply = session.post(
-            OLLAMA_URL,
-            json={
-                "model": "llama3.1",
-                "messages": conversation_history,
-                "stream": True
-            },
-            stream = True,
-            timeout=60
-        )
-        bot_reply = ""
-        reply.raise_for_status()
-        for line in reply.iter_lines():
-            if line:
-                chunk = json.loads(line.decode('utf-8'))
-                bot_reply += chunk.get("message",{}).get("content","")
-        save_chat(text, bot_reply)
-        conversation_history.append({"role" :"assistant","content":bot_reply})
-        return jsonify({"reply": bot_reply})
-    except requests.exceptions.RequestException as e :
-        return jsonify({"error" :f"Ollama connection failed :{str(e)}"}),502
-    except Exception as e :
-        return jsonify({"error" : str(e)}),500
+        conversation_history.append({"role": "user", "content": text})
+
+        def generate():
+            reply = session.post(
+                OLLAMA_URL,
+                json={
+                    "model": "llama3.1",
+                    "messages": conversation_history,
+                    "stream": True
+                },
+                stream=True,
+                timeout=60
+            )
+            bot_reply = ""
+            reply.raise_for_status()
+            for line in reply.iter_lines():
+                if line:
+                    chunk = json.loads(line.decode('utf-8'))
+                    content = chunk.get("message", {}).get("content", "")
+                    bot_reply += content
+                    yield content
+            save_chat(text, bot_reply)
+            conversation_history.append({"role": "assistant", "content": bot_reply})
+        return Response(generate(), mimetype='text/event-stream')
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": f"Ollama connection failed :{str(e)}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/history', methods=['GET'])
 def history():
@@ -79,5 +85,4 @@ def clear_history():
 
 
 if __name__ == '__main__':
-   app.run(host="0.0.0.0", port=5000, debug=True)
-
+    app.run(host="0.0.0.0", port=5000, debug=True)

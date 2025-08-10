@@ -1,14 +1,35 @@
+import os
+from platform import processor
 from flask import Flask, jsonify, request, Response
 import requests
 import json
 from datetime import datetime
 from flask_cors import CORS
 from threading import Thread
+from typing import List
+from langchain.schema import Document
+from pdf_processor import PDFProcessor
+from vector_store import VectorStoreManager
 
 app = Flask(__name__)
 CORS(app)
 conversation_history = []
+processor = PDFProcessor()
+vector_store = VectorStoreManager(None,None)
 
+def load_and_process_pdfs(pdf_folder_path:str)->List[Document]:
+    all_documents = []
+    for filename in os.listdir(pdf_folder_path):
+        if filename.lower().endswith(".pdf"):
+            file_path = os.path.join(pdf_folder_path,filename)
+            try:
+                docs = processor.process_pdf(file_path)
+                all_documents.extend(docs)
+                print(f"Processed {filename}:extracted {len(docs)} chunks")
+            except Exception as e :
+                print(f"Failed to process {filename} : {e}")
+    print(f"Total chunks extracted from all PDFs : {len(all_documents)}")
+    return all_documents
 
 def save_chat(user_message, bot_reply):
     def _save():
@@ -20,6 +41,8 @@ def save_chat(user_message, bot_reply):
 
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
+all_documents = load_and_process_pdfs("data/pdfs")
+vector_store.build_index(all_documents)
 
 
 @app.route('/')
@@ -36,13 +59,24 @@ def chat():
             return jsonify({"error": "Missing 'text' in request"}), 400
         text = data.get('text')
         conversation_history.append({"role": "user", "content": text})
+        pdf_matches = vector_store.search(text,k=3)
+        context = '\n\n'.join([doc["page_content"] for doc in pdf_matches])
+        system_message ={
+            "role" : "system",
+            "content":(
+            "You are a helpful assistant. Use only the following context to answer the question."
+            "If the answer is not contained here, say you don't know.\n\n"
+            f"Context:\n{context}"
+            )
+        }
+        messages = [system_message] + conversation_history
 
         def generate():
             reply = session.post(
                 OLLAMA_URL,
                 json={
                     "model": "llama3.1",
-                    "messages": conversation_history,
+                    "messages": messages,
                     "stream": True
                 },
                 stream=True,

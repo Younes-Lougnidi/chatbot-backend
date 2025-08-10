@@ -9,3 +9,6 @@ instance/
 .DS_Store
 .cache/
 chat_history.json
+data/pdf.index
+data/pdf_metadata.pkl
+data/pdfs/example.pdf

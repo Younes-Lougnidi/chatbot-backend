@@ -3,12 +3,15 @@ import faiss
 import pickle
 from typing import List
 from langchain.schema import Document
+from pdf_processor import PDFProcessor
+import os
 
+processor = PDFProcessor()
 class VectorStoreManager:
-    def __init__(self,index,metadata):
+    def __init__(self,index = None,metadata= None):
         self.index = index
         self.metadata = metadata
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.model =  SentenceTransformer('multi-qa-mpnet-base-dot-v1')
 
     def build_index(self,documents : List[Document]):
         model = self.model
@@ -24,6 +27,11 @@ class VectorStoreManager:
         self.index = index
         self.metadata = metadata
 
+    def _normalize_query(self, query: str) -> str:
+        import unicodedata, ftfy
+        query = unicodedata.normalize("NFC", query)
+        return ftfy.fix_text(query).strip()
+
     def load_index(self):
         index = faiss.read_index("data/pdf.index")
         with open("data/pdf_metadata.pkl","rb") as f:
@@ -33,6 +41,7 @@ class VectorStoreManager:
 
     def search(self,query,k):
         model = self.model
+        query = self._normalize_query(query)
         query_embedding = model.encode([query],convert_to_numpy=True).astype('float32')
         distances, indices = self.index.search(query_embedding, k)
         results = []
@@ -40,5 +49,22 @@ class VectorStoreManager:
             if idx< len(self.metadata):
                 results.append(self.metadata[idx])
         return results
+    @staticmethod
+    def load_and_process_pdfs(pdf_folder_path: str) -> List[Document]:
+        all_documents = []
+        for filename in os.listdir(pdf_folder_path):
+            if filename.lower().endswith(".pdf"):
+                file_path = os.path.join(pdf_folder_path, filename)
+                try:
+                    docs = processor.process_pdf(file_path)
+                    all_documents.extend(docs)
+                    print(f"Processed {filename}:extracted {len(docs)} chunks")
+                except Exception as e:
+                    print(f"Failed to process {filename} : {e}")
+        print(f"Total chunks extracted from all PDFs : {len(all_documents)}")
+        return all_documents
 
-
+if __name__ == '__main__':
+    vector_store1 = VectorStoreManager(None,None)
+    all_documents = vector_store1.load_and_process_pdfs("data/pdfs")
+    vector_store1.build_index(all_documents)

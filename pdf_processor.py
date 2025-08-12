@@ -6,14 +6,15 @@ import pytesseract
 from pdf2image import convert_from_path
 import cv2
 import numpy as np
+import unicodedata
 
 
 
 class PDFProcessor:
     def __init__(self):
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=1500,
+            chunk_overlap=300,
             length_function=len,
             add_start_index=True
         )
@@ -26,8 +27,7 @@ class PDFProcessor:
                 for i, page in enumerate(pdf.pages):
                     text = page.extract_text()
                     if text:
-                        cleaned_text = ftfy.fix_text(text)
-                        cleaned_text = cleaned_text.encode('utf-8').decode('utf-8')
+                        cleaned_text = self._normalize_text(text)
                         documents.append(Document(
                             page_content=cleaned_text,
                             metadata={"source": file_path, "page": i + 1, "processing_method": "pdfplumber"}
@@ -38,13 +38,21 @@ class PDFProcessor:
             # fallback to pytesseract or other method here
             return self._process_unstructured_pdf(file_path)
 
+    def _normalize_text(self, text: str) -> str:
+            # Normalize accents to composed form (é instead of e +  ́)
+            text = unicodedata.normalize("NFC", text)
+            # Fix broken characters
+            text = ftfy.fix_text(text)
+            return text.strip()
+
     def _process_unstructured_pdf(self,file_path:str)-> List[Document]:
         documents = []
         images = convert_from_path(file_path,dpi= 300)
         for i,image in enumerate(images):
             cleaned_image = self._preprocess_image(image)
             custom_config = r'--oem 3 --psm 6 -l fra+eng'
-            text = pytesseract.image_to_string(cleaned_image)
+            text = pytesseract.image_to_string(cleaned_image,config=custom_config)
+            text = self._normalize_text(text)
             documents.append(Document(
                 page_content=text,
                 metadata={

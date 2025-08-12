@@ -11,4 +11,8 @@ instance/
 chat_history.json
 data/pdf.index
 data/pdf_metadata.pkl
-data/pdfs/example.pdf
+data/pdfs/cours_algebre_2.pdf
+data/pdfs/Electromagnétisme 2025.pdf
+data/pdfs/suites_et_séries_de_fonctions_complet.pdf
+data/pdfs/séries_entières_complet.pdf
+data/pdfs/série_numérique_complet.pdf

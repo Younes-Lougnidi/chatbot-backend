@@ -11,6 +11,7 @@ from vector_store import VectorStoreManager
 app = Flask(__name__)
 CORS(app)
 conversation_history = []
+stop_flags = {}
 processor = PDFProcessor()
 vector_store = VectorStoreManager(None,None)
 vector_store.load_index()
@@ -32,12 +33,19 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 def home():
     return jsonify({'message': "Backend is running !"})
 
+@app.route('/stop',methods= ['POST'])
+def stop_generation():
+    session_id = request.json.get("session_id")
+    stop_flags[session_id] = True
+    return jsonify({"status": "stopping"})
 
 @app.route('/chat', methods=['POST'])
 def chat():
     try:
         session = requests.Session()
         data = request.get_json()
+        session_id = data.get("session_id","default")
+        stop_flags[session_id] = False
         if not data or 'text' not in data:
             return jsonify({"error": "Missing 'text' in request"}), 400
         text = data.get('text')
@@ -47,7 +55,7 @@ def chat():
         system_message ={
             "role" : "system",
             "content":(
-                f"You are an expert assistant. Use the information from the documents to answer the question.\n First, identify relevant facts.\n Then, reason step-by-step.\nFinally, provide a clear, concise answer.\nFor latex expressions always write then in one single line all of them using $$.\nIf the documents don’t contain enough info, say so.\ncontext:{context}\nquestion:{text}"
+                f"You are an expert assistant. Use the information from the documents to answer the question.\n First, identify relevant facts.\n Then, reason step-by-step.\nFinally, provide a clear, concise answer.\nFor all math formulas use LATEX.\nFor latex expressions always write them in one single line all of them using $$ even for expressions for matrices and alignment....\nIf the documents don’t contain enough info, you can answer from you're knowledge(don't say that you don't know).\nIf the user wants to hold a normal conversation you can do so.\ncontext:{context}\nquestion:{text}"
 
             )
         }
@@ -67,6 +75,8 @@ def chat():
             bot_reply = ""
             reply.raise_for_status()
             for line in reply.iter_lines():
+                if stop_flags.get(session_id):
+                    break
                 if line:
                     chunk = json.loads(line.decode('utf-8'))
                     content = chunk.get("message", {}).get("content", "")
